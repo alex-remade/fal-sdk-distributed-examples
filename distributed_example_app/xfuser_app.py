@@ -62,7 +62,7 @@ class XFuserApp(
           For DiT models, dit_parallel_size is automatically calculated.
     """
 
-    num_gpus = 8
+    num_gpus = 2
     
     requirements = [
         "torch>=2.6.0",
@@ -144,10 +144,10 @@ class XFuserApp(
         
         # Parallelism configuration
         pipefusion_degree = 2
-        ulysses_degree = 2
+        ulysses_degree = 1
         ring_degree = 1
         warmup_steps = 1
-        use_cfg_parallel = True
+        use_cfg_parallel = False
 
         dit_parallel_size = pipefusion_degree * ulysses_degree * (2 if use_cfg_parallel else 1)
 
