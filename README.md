@@ -84,28 +84,6 @@ Use this approach for model parallelism where the model is split across GPUs for
 
 ## Usage
 
-### Local Testing
-
-Test apps locally before deploying to fal serverless:
-
-**FAL DistributedRunner (Beta):**
-```python
-from distributed_example_app.runner.demo_app import ExampleDistributedApp
-import fal
-
-app = fal.wrap_app(ExampleDistributedApp)
-app()
-```
-
-**xFuser:**
-```python
-from distributed_example_app.xfuser.app import XFuserApp
-import fal
-
-app = fal.wrap_app(XFuserApp)
-app()
-```
-
 ### Ephemeral App (Testing)
 
 Run apps temporarily for testing on fal serverless without deploying:
@@ -184,31 +162,6 @@ num_gpus = 2  # Configurable: 2, 4, or 8
   "message": "Image generated successfully"
 }
 ```
-
-## Architecture
-
-### FAL DistributedRunner (Beta) - Data Parallelism
-
-```
-Fal App → DistributedRunner (Main Process)
-              ↓ ZMQ Communication
-          GPU0  GPU1  GPU2  GPU3
-          (Each runs independent model instance)
-```
-
-Main process coordinates work via ZMQ on fal serverless. Each GPU runs a complete model instance. Results are gathered and combined. Good for throughput: process multiple requests in parallel.
-
-### xFuser Engine - Model Parallelism
-
-```
-Fal App → Ray Engine
-            ↓ Ray Remote Calls
-        xFuser Pipeline
-        (model split across GPUs)
-        GPU0 | GPU1 | GPU2 | GPU3
-```
-
-Ray manages distributed workers on fal serverless. xFuser splits model across GPUs using PipeFusion (pipeline parallelism) and Ulysses (sequence parallelism). Good for latency: generate single images faster.
 
 ## Troubleshooting
 
