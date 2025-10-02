@@ -154,8 +154,21 @@ class Engine:
             ray.init()
         
         num_workers = world_size
+        # Convert Pydantic model to dict to avoid pickling issues
+        xfuser_args_dict = {
+            'model': xfuser_args.model,
+            'trust_remote_code': xfuser_args.trust_remote_code,
+            'warmup_steps': xfuser_args.warmup_steps,
+            'use_parallel_vae': xfuser_args.use_parallel_vae,
+            'use_torch_compile': xfuser_args.use_torch_compile,
+            'ulysses_degree': xfuser_args.ulysses_degree,
+            'pipefusion_parallel_degree': xfuser_args.pipefusion_parallel_degree,
+            'use_cfg_parallel': xfuser_args.use_cfg_parallel,
+            'dit_parallel_size': xfuser_args.dit_parallel_size,
+        }
+        
         self.workers = [
-            ImageGenerator.remote(xfuser_args, rank=rank, world_size=world_size)
+            ImageGenerator.remote(xfuser_args_dict, rank=rank, world_size=world_size)
             for rank in range(num_workers)
         ]
         
