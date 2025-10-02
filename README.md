@@ -104,7 +104,21 @@ app = fal.wrap_app(XFuserApp)
 app()
 ```
 
-### Deploying to Fal
+### Ephemeral App (Testing)
+
+Run apps temporarily for testing without deploying:
+
+```bash
+# Run custom distributed runner ephemerally
+fal run distributed-demo
+
+# Run xFuser app ephemerally
+fal run xfuser-demo
+```
+
+### Production Deployment
+
+Deploy apps for persistent production use:
 
 ```bash
 # Deploy custom distributed runner
