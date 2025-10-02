@@ -70,7 +70,12 @@ class GenerateResponse(BaseModel):
     message: str = Field(description="Status message")
 
 
-class XFuserApp(fal.App):
+class XFuserApp(
+    fal.App,
+    image=ContainerImage.from_dockerfile_str(dockerfile_str),
+    kind="container",
+    keep_alive=300,
+):
     """
     Fal app that runs xFuser for distributed image generation.
     
@@ -89,12 +94,7 @@ class XFuserApp(fal.App):
 
     machine_type = "GPU-A100"
     num_gpus = 2
-    kind = "container"
-    container_image = ContainerImage.from_dockerfile_str(dockerfile_str)
-    local_files = [
-        "launch.py",
-    ]
-    keep_alive = 300
+
 
     async def setup(self) -> None:
         """
@@ -124,10 +124,65 @@ class XFuserApp(fal.App):
         # Advanced options
         warmup_steps = int(os.environ.get("WARMUP_STEPS", "1"))
 
+        # DEBUG: Print directory information before starting subprocess
+        print("=== DEBUG: Directory Information ===")
+        print(f"Current working directory: {os.getcwd()}")
+        print(f"Directory contents of CWD:")
+        cwd_items = os.listdir(os.getcwd())
+        if not cwd_items:
+            print("  (EMPTY - no files or directories)")
+        else:
+            for item in cwd_items:
+                item_path = os.path.join(os.getcwd(), item)
+                if os.path.isdir(item_path):
+                    print(f"  [DIR]  {item}")
+                else:
+                    print(f"  [FILE] {item}")
+        
+        # If in /app, list all contents recursively
+        if os.getcwd() == "/app":
+            print(f"\nDetailed recursive listing of /app:")
+            for root, dirs, files in os.walk("/app"):
+                level = root.replace("/app", "").count(os.sep)
+                indent = " " * 2 * level
+                print(f"{indent}{os.path.basename(root)}/")
+                subindent = " " * 2 * (level + 1)
+                for file in files:
+                    print(f"{subindent}[FILE] {file}")
+                for dir in dirs:
+                    print(f"{subindent}[DIR] {dir}/")
+        
+        # Check parent directory
+        parent_dir = os.path.dirname(os.getcwd())
+        if parent_dir:
+            print(f"\nParent directory ({parent_dir}) contents:")
+            for item in os.listdir(parent_dir):
+                item_path = os.path.join(parent_dir, item)
+                if os.path.isdir(item_path):
+                    print(f"  [DIR]  {item}")
+        
+        # Check if distributed_example_app directory exists
+        dist_app_path = os.path.join(os.getcwd(), "distributed_example_app")
+        if os.path.exists(dist_app_path):
+            print(f"\ndistributed_example_app directory found at: {dist_app_path}")
+            print(f"Contents of distributed_example_app:")
+            for item in os.listdir(dist_app_path):
+                print(f"  {item}")
+        else:
+            print(f"\nWARNING: distributed_example_app directory NOT FOUND at {dist_app_path}")
+        
+        # Check sys.path
+        import sys
+        print(f"\nPython sys.path:")
+        for path in sys.path:
+            print(f"  {path}")
+        print("====================================\n")
+
         # Build command to start the xFuser service
         cmd = [
             "python",
-            "launch.py",
+            "-m",
+            "distributed_example_app.launch",
             "--model_path",
             model_path,
             "--world_size",

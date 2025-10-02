@@ -10,14 +10,14 @@ from pydantic import BaseModel
 from typing import Optional
 import argparse
 
-#from xfuser import (
-#    xFuserPixArtAlphaPipeline,
-#    xFuserPixArtSigmaPipeline,
-#    xFuserFluxPipeline,
-#    xFuserStableDiffusion3Pipeline,
-#    xFuserHunyuanDiTPipeline,
-#    xFuserArgs,
-#)
+from xfuser import (
+    xFuserPixArtAlphaPipeline,
+    xFuserPixArtSigmaPipeline,
+    xFuserFluxPipeline,
+    xFuserStableDiffusion3Pipeline,
+    xFuserHunyuanDiTPipeline,
+    xFuserArgs,
+)
 # Define request model
 class GenerateRequest(BaseModel):
     prompt: str
