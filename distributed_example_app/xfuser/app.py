@@ -35,7 +35,7 @@ class GenerateResponse(BaseModel):
 class XFuserApp(
     fal.App,
     keep_alive=300,
-    machine_type="GPU-H100",
+
 ):
     """
     Fal app that runs xFuser for distributed image generation.
@@ -64,6 +64,7 @@ class XFuserApp(
     """
 
     num_gpus = 2  # Optimized for cost/performance ratio
+    machine_type="GPU-H100"
     
     requirements = [
         "torch>=2.6.0",
@@ -89,8 +90,8 @@ class XFuserApp(
         Initialize the xFuser distributed engine.
         """
         import os
-        import sys
-        import ray
+   
+      
 
         print("=== Starting xFuser Distributed Engine Setup ===")
 
@@ -99,21 +100,19 @@ class XFuserApp(
         repo_path = clone_repository(
             "https://github.com/alex-remade/fal-sdk-distributed-examples",
             include_to_path=True,
+            commit_hash="a8d67c1c66259083c655d6efa021f09eda418c36"
         )
         
         print(f"Repository cloned to: {repo_path}")
         
-        # Explicitly ensure it's in sys.path
-        if repo_path not in sys.path:
-            sys.path.insert(0, repo_path)
-            print(f"Added {repo_path} to sys.path")
+   
         
         os.chdir(repo_path)
 
         # Import from cloned repository with new structure
         print("Attempting to import distributed_example_app.xfuser.engine...")
         from distributed_example_app.xfuser.engine import Engine
-        from xfuser import xFuserArgs
+       
         print("Import successful!")
 
         # Set HuggingFace token if provided
