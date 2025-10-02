@@ -106,7 +106,7 @@ class XFuserApp(fal.App):
         # Initialize instance variables (don't use __init__)
         self.process: Optional[asyncio.subprocess.Process] = None
         self.internal_api_url = "http://127.0.0.1:6000"
-        self.client: Optional[httpx.AsyncClient] = None
+        self.client: Optional["httpx.AsyncClient"] = None  # type: ignore[name-defined]
 
         # Load configuration from environment variables
         model_path = os.environ.get("MODEL_PATH", "black-forest-labs/FLUX.1-schnell")
