@@ -5,46 +5,13 @@ import time
 from typing import Any, Optional, TYPE_CHECKING
 
 import fal
-from fal.container import ContainerImage
 from fal.toolkit import File, Image
 from pydantic import BaseModel, Field
+
 
 if TYPE_CHECKING:
     import httpx
     from fastapi.responses import Response
-
-# Define the Docker container for xFuser
-dockerfile_str = """
-FROM python:3.11
-
-# Install system dependencies
-RUN apt-get update && apt-get install -y ffmpeg
-
-# Create and activate virtual environment
-RUN python -m venv /opt/venv
-ENV PATH="/opt/venv/bin:$PATH"
-
-# Install Python dependencies
-RUN pip install --no-cache-dir \
-    torch==2.6.0 \
-    torchvision==0.21.0 \
-    --extra-index-url https://download.pytorch.org/whl/cu124
-
-RUN pip install --no-cache-dir \
-    xfuser>=0.3.0 \
-    ray \
-    httpx \
-    diffusers \
-    transformers \
-    accelerate \
-    sentencepiece \
-    protobuf \
-    fastapi \
-    uvicorn \
-    pydantic
-
-WORKDIR /app
-"""
 
 
 class GenerateRequest(BaseModel):
@@ -72,9 +39,8 @@ class GenerateResponse(BaseModel):
 
 class XFuserApp(
     fal.App,
-    image=ContainerImage.from_dockerfile_str(dockerfile_str),
-    kind="container",
     keep_alive=300,
+   
 ):
     """
     Fal app that runs xFuser for distributed image generation.
@@ -92,8 +58,26 @@ class XFuserApp(
     - WARMUP_STEPS: Number of warmup steps (default: 1)
     """
 
-    machine_type = "GPU-A100"
     num_gpus = 2
+    requirements=[
+        "torch>=2.6.0",
+        "torchvision>=0.21.0",
+        "diffusers>=0.28.2",
+        "transformers>=4.47.2,<4.52.0",
+        "accelerate>=1.4.0",
+        "pyzmq>=25.0.0",
+        "ray>=2.0.0",
+        "Pillow>=9.0.0",
+        "opencv-python>=4.9.0.80",
+        "fastapi>=0.100.0",
+        "httpx>=0.24.0",
+        "pydantic>=1.8,<2.0",
+        "uvicorn>=0.20.0",
+        "xfuser>=0.3.0",
+        "sentencepiece",
+        "protobuf",
+    ]
+    machine_type="GPU-A100"  
 
 
     async def setup(self) -> None:
@@ -102,6 +86,8 @@ class XFuserApp(
         """
         import os
         import httpx
+
+        from distributed_example_app.launch import launch, GenerateRequest, GenerateResponse
 
         # Initialize instance variables (don't use __init__)
         self.process: Optional[asyncio.subprocess.Process] = None
@@ -177,6 +163,9 @@ class XFuserApp(
         for path in sys.path:
             print(f"  {path}")
         print("====================================\n")
+
+        #clone repo and flag to add to sys.path
+        #Ensure python env variable propagates to it PYTHONPATH (same as path but for python modules)
 
         # Build command to start the xFuser service
         cmd = [
