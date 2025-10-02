@@ -1,2 +1,3 @@
 *__pycache__
 venv/
+fal_distributed_examples.egg-info/*

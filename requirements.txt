@@ -1,0 +1,34 @@
+# Core ML dependencies
+torch>=2.6.0
+torchvision>=0.21.0
+diffusers>=0.28.2
+transformers>=4.47.2,<4.52.0
+accelerate>=1.4.0
+
+# Distributed computing
+pyzmq>=25.0.0
+ray>=2.0.0
+
+# Image processing
+Pillow>=9.0.0
+opencv-python>=4.9.0.80
+
+# API and web framework
+fastapi>=0.100.0
+httpx>=0.24.0
+pydantic>=1.8,<2.0
+uvicorn>=0.20.0
+
+# fal platform
+fal>=0.1.0
+
+# xFuser for distributed inference
+xfuser>=0.3.0
+
+# Additional dependencies
+sentencepiece
+protobuf
+
+# For CUDA support, use:
+# --extra-index-url https://download.pytorch.org/whl/cu124
+

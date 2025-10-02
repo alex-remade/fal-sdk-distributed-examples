@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "distributed_example_app"
+version = "0.1.0"
+description = "Distributed inference examples using fal and PyTorch distributed"
+dependencies = [
+    # Core ML dependencies
+    "torch>=2.6.0",
+    "torchvision>=0.21.0",
+    "diffusers>=0.28.2",
+    "transformers>=4.47.2,<4.52.0",
+    "accelerate>=1.4.0",
+    
+    # Distributed computing
+    "pyzmq>=25.0.0",
+    "ray>=2.0.0",
+    
+    # Image processing
+    "Pillow>=9.0.0",
+    "opencv-python>=4.9.0.80",
+    
+    # API and web framework
+    "fastapi>=0.100.0",
+    "httpx>=0.24.0",
+    "pydantic>=1.8,<2.0",
+    
+    # fal platform
+    "fal>=0.1.0",
+    
+    # Optional: xFuser for distributed inference
+    "xfuser>=0.3.0",
+]
+
+[tool.setuptools]
+packages = ["distributed_example_app"]
+
+[tool.fal.apps]
+# Distributed demo app using multiple GPUs with Stable Diffusion XL
+"distributed-demo" = { auth = "private", ref = "distributed_example_app/demo_app.py::ExampleDistributedApp" }
+
+# xFuser-based distributed inference app
+"xfuser-demo" = { auth = "private", ref = "distributed_example_app/xfuser_app.py::XFuserApp" }

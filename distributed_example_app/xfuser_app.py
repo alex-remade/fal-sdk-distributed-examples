@@ -2,13 +2,49 @@ import asyncio
 import base64
 import io
 import time
-from typing import Any, Optional
+from typing import Any, Optional, TYPE_CHECKING
 
 import fal
-import httpx
+from fal.container import ContainerImage
 from fal.toolkit import File, Image
-from fastapi.responses import Response
 from pydantic import BaseModel, Field
+
+if TYPE_CHECKING:
+    import httpx
+    from fastapi.responses import Response
+
+# Define the Docker container for xFuser
+dockerfile_str = """
+FROM python:3.11
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y ffmpeg
+
+# Create and activate virtual environment
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Install Python dependencies
+RUN pip install --no-cache-dir \
+    torch==2.6.0 \
+    torchvision==0.21.0 \
+    --extra-index-url https://download.pytorch.org/whl/cu124
+
+RUN pip install --no-cache-dir \
+    xfuser>=0.3.0 \
+    ray \
+    httpx \
+    diffusers \
+    transformers \
+    accelerate \
+    sentencepiece \
+    protobuf \
+    fastapi \
+    uvicorn \
+    pydantic
+
+WORKDIR /app
+"""
 
 
 class GenerateRequest(BaseModel):
@@ -53,26 +89,19 @@ class XFuserApp(fal.App):
 
     machine_type = "GPU-A100"
     num_gpus = 2
-    requirements = [
-        "torch==2.6.0+cu124",
-        "torchvision==0.21.0+cu124",
-        "xfuser>=0.3.0",
-        "ray",
-        "httpx",
-        "diffusers",
-        "transformers",
-        "accelerate",
-        "sentencepiece",
-        "protobuf",
-        "--extra-index-url",
-        "https://download.pytorch.org/whl/cu124",
+    kind = "container"
+    container_image = ContainerImage.from_dockerfile_str(dockerfile_str)
+    local_files = [
+        "launch.py",
     ]
+    keep_alive = 300
 
     async def setup(self) -> None:
         """
         Start the xFuser service as a subprocess and wait for it to be ready.
         """
         import os
+        import httpx
 
         # Initialize instance variables (don't use __init__)
         self.process: Optional[asyncio.subprocess.Process] = None
@@ -202,7 +231,7 @@ class XFuserApp(fal.App):
 
     @fal.endpoint("/")
     async def generate(
-        self, request: GenerateRequest, response: Response
+        self, request: GenerateRequest
     ) -> GenerateResponse:
         """
         Generate an image using xFuser distributed inference.
