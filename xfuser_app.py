@@ -15,35 +15,31 @@ if TYPE_CHECKING:
 
 # Define the Docker container for xFuser
 dockerfile_str = """
-FROM python:3.11
+FROM falai/base:3.11-12.1.0
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y ffmpeg
-
-# Create and activate virtual environment
-RUN python -m venv /opt/venv
-ENV PATH="/opt/venv/bin:$PATH"
-
-# Install Python dependencies
-RUN pip install --no-cache-dir \
-    torch==2.6.0 \
-    torchvision==0.21.0 \
+# Install PyTorch first with CUDA support
+RUN pip install --no-cache-dir \\
+    "torch==2.6.0" \\
+    "torchvision==0.21.0" \\
     --extra-index-url https://download.pytorch.org/whl/cu124
 
-RUN pip install --no-cache-dir \
-    xfuser>=0.3.0 \
-    ray \
-    httpx \
-    diffusers \
-    transformers \
-    accelerate \
-    sentencepiece \
-    protobuf \
-    fastapi \
-    uvicorn \
-    pydantic
+# Install other dependencies
+RUN pip install --no-cache-dir \\
+    "xfuser>=0.3.0" \\
+    ray \\
+    httpx \\
+    diffusers \\
+    transformers \\
+    accelerate \\
+    sentencepiece \\
+    fastapi \\
+    uvicorn
 
-WORKDIR /app
+# CRITICAL: Install fal-required packages LAST to ensure correct versions
+RUN pip install --no-cache-dir \\
+    "boto3==1.35.74" \\
+    "protobuf==4.25.1" \\
+    "pydantic==2.10.6"
 """
 
 
@@ -91,9 +87,12 @@ class XFuserApp(
     - SAVE_DISK_PATH: Default path for saving images (default: output)
     - WARMUP_STEPS: Number of warmup steps (default: 1)
     """
-
+    
+    # Local Python modules to copy into the container
+    local_python_modules = ["internal_app"]
     machine_type = "GPU-A100"
     num_gpus = 2
+
 
 
     async def setup(self) -> None:
@@ -182,7 +181,7 @@ class XFuserApp(
         cmd = [
             "python",
             "-m",
-            "distributed_example_app.launch",
+            "internal_app.launch",
             "--model_path",
             model_path,
             "--world_size",
