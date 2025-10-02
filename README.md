@@ -1,12 +1,12 @@
 # Distributed Inference Examples
 
-Examples of distributed inference for image generation models using PyTorch distributed computing and the fal platform.
+Examples showcasing multi-GPU inference with fal serverless for image generation models.
 
 ## Overview
 
-This project demonstrates two approaches to running AI image generation models (Stable Diffusion XL, Stable Diffusion 3, PixArt, etc.) across multiple GPUs:
+This repository demonstrates two approaches to running AI image generation models (Stable Diffusion XL, Stable Diffusion 3, PixArt, etc.) across multiple GPUs on fal serverless:
 
-- **Custom Distributed Runner**: ZMQ-based framework for data parallelism (each GPU runs independent model instances)
+- **FAL DistributedRunner (Beta)**: Custom ZMQ-based framework for data parallelism (each GPU runs independent model instances)
 - **xFuser Integration**: Ray-based framework for model parallelism (model split across GPUs using PipeFusion/Ulysses)
 
 ## Installation
@@ -62,8 +62,8 @@ pip install torch==2.6.0+cu124 torchvision==0.21.0+cu124 --extra-index-url https
 
 **`distributed_example_app/runner/`**
 
-Custom distributed inference framework using PyTorch distributed and ZMQ:
-- `demo_app.py`: Runs Stable Diffusion XL across multiple GPUs, generates image grids
+FAL DistributedRunner (Beta) - Custom distributed inference framework using PyTorch distributed and ZMQ:
+- `demo_app.py`: Runs Stable Diffusion XL across multiple GPUs on fal serverless, generates image grids
 - `distributed/worker.py`: Core classes for distributed execution
   - `DistributedWorker`: Base class for implementing workers
   - `DistributedRunner`: Manages worker processes and ZMQ communication
@@ -73,7 +73,7 @@ Use this approach for data parallelism where each GPU runs the full model indepe
 
 **`distributed_example_app/xfuser/`**
 
-xFuser-based distributed inference using advanced parallelism:
+xFuser-based distributed inference using advanced parallelism on fal serverless:
 - `app.py`: Fal application using xFuser with PipeFusion and Ulysses parallelism
 - `engine.py`: Ray-based engine managing multiple xFuser workers
 - `launch.py`: Standalone server for local testing
@@ -86,7 +86,9 @@ Use this approach for model parallelism where the model is split across GPUs for
 
 ### Local Testing
 
-**Custom Distributed Runner:**
+Test apps locally before deploying to fal serverless:
+
+**FAL DistributedRunner (Beta):**
 ```python
 from distributed_example_app.runner.demo_app import ExampleDistributedApp
 import fal
@@ -106,10 +108,10 @@ app()
 
 ### Ephemeral App (Testing)
 
-Run apps temporarily for testing without deploying:
+Run apps temporarily for testing on fal serverless without deploying:
 
 ```bash
-# Run custom distributed runner ephemerally
+# Run FAL DistributedRunner (Beta) example ephemerally
 fal run distributed-demo
 
 # Run xFuser app ephemerally
@@ -118,10 +120,10 @@ fal run xfuser-demo
 
 ### Production Deployment
 
-Deploy apps for persistent production use:
+Deploy apps for persistent production use on fal serverless:
 
 ```bash
-# Deploy custom distributed runner
+# Deploy FAL DistributedRunner (Beta) example
 fal deploy distributed-demo
 
 # Deploy xFuser app
@@ -147,7 +149,7 @@ num_gpus = 2  # Configurable: 2, 4, or 8
 
 ## API Examples
 
-### Custom Distributed Runner
+### FAL DistributedRunner (Beta)
 
 **Request:**
 ```json
@@ -185,7 +187,7 @@ num_gpus = 2  # Configurable: 2, 4, or 8
 
 ## Architecture
 
-### Custom Distributed Runner (Data Parallelism)
+### FAL DistributedRunner (Beta) - Data Parallelism
 
 ```
 Fal App → DistributedRunner (Main Process)
@@ -194,9 +196,9 @@ Fal App → DistributedRunner (Main Process)
           (Each runs independent model instance)
 ```
 
-Main process coordinates work via ZMQ. Each GPU runs a complete model instance. Results are gathered and combined. Good for throughput: process multiple requests in parallel.
+Main process coordinates work via ZMQ on fal serverless. Each GPU runs a complete model instance. Results are gathered and combined. Good for throughput: process multiple requests in parallel.
 
-### xFuser Engine (Model Parallelism)
+### xFuser Engine - Model Parallelism
 
 ```
 Fal App → Ray Engine
@@ -206,7 +208,7 @@ Fal App → Ray Engine
         GPU0 | GPU1 | GPU2 | GPU3
 ```
 
-Ray manages distributed workers. xFuser splits model across GPUs using PipeFusion (pipeline parallelism) and Ulysses (sequence parallelism). Good for latency: generate single images faster.
+Ray manages distributed workers on fal serverless. xFuser splits model across GPUs using PipeFusion (pipeline parallelism) and Ulysses (sequence parallelism). Good for latency: generate single images faster.
 
 ## Troubleshooting
 
