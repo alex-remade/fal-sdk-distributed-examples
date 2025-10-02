@@ -50,7 +50,10 @@ async def health_check():
 
 @ray.remote(num_gpus=1)
 class ImageGenerator:
-    def __init__(self, xfuser_args: xFuserArgs, rank: int, world_size: int):
+    def __init__(self, xfuser_args_dict: dict, rank: int, world_size: int):
+        # Recreate xFuserArgs from dict
+        xfuser_args = xFuserArgs(**xfuser_args_dict)
+        
         # Set PyTorch distributed environment variables
         os.environ["RANK"] = str(rank)
         os.environ["WORLD_SIZE"] = str(world_size)
