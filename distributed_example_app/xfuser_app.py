@@ -9,7 +9,6 @@ from fal.toolkit import File, Image, clone_repository
 from pydantic import BaseModel, Field
 
 
-from xfuser import xFuserArgs
 
 class GenerateRequest(BaseModel):
     """Request model for image generation using xFuser."""
@@ -54,7 +53,7 @@ class XFuserApp(
     """
 
     num_gpus = 2
-    machine_type="GPU-A100"
+    machine_type="GPU-H100"
     
     requirements = [
         "torch>=2.6.0",
@@ -82,7 +81,7 @@ class XFuserApp(
         import os
         import sys
         import ray
-        from distributed_example_app.engine import Engine
+
         print("=== Starting xFuser Distributed Engine Setup ===")
  
 
