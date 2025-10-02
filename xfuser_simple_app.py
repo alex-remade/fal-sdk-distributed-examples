@@ -1,51 +1,22 @@
 import asyncio
 import base64
 import io
+import os
 import time
 from typing import Any, Optional, TYPE_CHECKING
 
 import fal
-from fal.container import ContainerImage
-from fal.toolkit import File, Image
+from fal.toolkit import Image
 from pydantic import BaseModel, Field
+from internal_app.launch import launch, GenerateRequest, GenerateResponse
 
 if TYPE_CHECKING:
     import httpx
-    from fastapi.responses import Response
-
-# Define the Docker container for xFuser
-dockerfile_str = """
-FROM falai/base:3.11-12.1.0
-
-# Install PyTorch first with CUDA support
-RUN pip install --no-cache-dir \\
-    "torch==2.6.0" \\
-    "torchvision==0.21.0" \\
-    --extra-index-url https://download.pytorch.org/whl/cu124
-
-# Install other dependencies
-RUN pip install --no-cache-dir \\
-    "xfuser>=0.3.0" \\
-    ray \\
-    httpx \\
-    diffusers \\
-    transformers \\
-    accelerate \\
-    sentencepiece \\
-    fastapi \\
-    uvicorn
-
-# CRITICAL: Install fal-required packages LAST to ensure correct versions
-RUN pip install --no-cache-dir \\
-    "boto3==1.35.74" \\
-    "protobuf==4.25.1" \\
-    "pydantic==2.10.6"
-"""
 
 
 class GenerateRequest(BaseModel):
     """Request model for image generation using xFuser."""
-
+    
     prompt: str = Field(description="Text prompt for image generation")
     num_inference_steps: int = Field(default=50, description="Number of inference steps")
     seed: int = Field(default=42, description="Random seed for generation")
@@ -60,18 +31,13 @@ class GenerateRequest(BaseModel):
 
 class GenerateResponse(BaseModel):
     """Response model containing the generated image."""
-
-    image: File = Field(description="Generated image")
+    
+    image: Image = Field(description="Generated image")
     elapsed_time: str = Field(description="Time taken to generate the image")
     message: str = Field(description="Status message")
 
 
-class XFuserApp(
-    fal.App,
-    image=ContainerImage.from_dockerfile_str(dockerfile_str),
-    kind="container",
-    keep_alive=300,
-):
+class XFuserApp(fal.App):
     """
     Fal app that runs xFuser for distributed image generation.
     
@@ -88,24 +54,38 @@ class XFuserApp(
     - WARMUP_STEPS: Number of warmup steps (default: 1)
     """
     
-    # Local Python modules to copy into the container
-    local_python_modules = ["internal_app"]
     machine_type = "GPU-A100"
     num_gpus = 2
-
-
+    keep_alive = 300
+    
+    # Requirements for the container
+    requirements = [
+        "torch==2.6.0",
+        "torchvision==0.21.0",
+        "xfuser>=0.3.0",
+        "ray",
+        "httpx",
+        "diffusers",
+        "transformers",
+        "accelerate",
+        "sentencepiece",
+        "fastapi",
+        "uvicorn",
+    ]
+    
+    # Local Python modules to include
+    local_python_modules = ["internal_app"]
 
     async def setup(self) -> None:
         """
         Start the xFuser service as a subprocess and wait for it to be ready.
         """
-        import os
         import httpx
 
-        # Initialize instance variables (don't use __init__)
+        # Initialize instance variables
         self.process: Optional[asyncio.subprocess.Process] = None
         self.internal_api_url = "http://127.0.0.1:6000"
-        self.client: Optional["httpx.AsyncClient"] = None  # type: ignore[name-defined]
+        self.client: Optional["httpx.AsyncClient"] = None
 
         # Load configuration from environment variables
         model_path = os.environ.get("MODEL_PATH", "black-forest-labs/FLUX.1-schnell")
@@ -123,60 +103,20 @@ class XFuserApp(
         # Advanced options
         warmup_steps = int(os.environ.get("WARMUP_STEPS", "1"))
 
-        # DEBUG: Print directory information before starting subprocess
-        print("=== DEBUG: Directory Information ===")
+        # DEBUG: Check environment
+        print("=== DEBUG: Environment Information ===")
         print(f"Current working directory: {os.getcwd()}")
-        print(f"Directory contents of CWD:")
-        cwd_items = os.listdir(os.getcwd())
-        if not cwd_items:
-            print("  (EMPTY - no files or directories)")
-        else:
-            for item in cwd_items:
-                item_path = os.path.join(os.getcwd(), item)
-                if os.path.isdir(item_path):
-                    print(f"  [DIR]  {item}")
-                else:
-                    print(f"  [FILE] {item}")
+        print(f"Directory contents:")
+        for item in os.listdir(os.getcwd())[:20]:
+            item_path = os.path.join(os.getcwd(), item)
+            print(f"  {'[DIR] ' if os.path.isdir(item_path) else '[FILE]'} {item}")
         
-        # If in /app, list all contents recursively
-        if os.getcwd() == "/app":
-            print(f"\nDetailed recursive listing of /app:")
-            for root, dirs, files in os.walk("/app"):
-                level = root.replace("/app", "").count(os.sep)
-                indent = " " * 2 * level
-                print(f"{indent}{os.path.basename(root)}/")
-                subindent = " " * 2 * (level + 1)
-                for file in files:
-                    print(f"{subindent}[FILE] {file}")
-                for dir in dirs:
-                    print(f"{subindent}[DIR] {dir}/")
-        
-        # Check parent directory
-        parent_dir = os.path.dirname(os.getcwd())
-        if parent_dir:
-            print(f"\nParent directory ({parent_dir}) contents:")
-            for item in os.listdir(parent_dir):
-                item_path = os.path.join(parent_dir, item)
-                if os.path.isdir(item_path):
-                    print(f"  [DIR]  {item}")
-        
-        # Check if distributed_example_app directory exists
-        dist_app_path = os.path.join(os.getcwd(), "distributed_example_app")
-        if os.path.exists(dist_app_path):
-            print(f"\ndistributed_example_app directory found at: {dist_app_path}")
-            print(f"Contents of distributed_example_app:")
-            for item in os.listdir(dist_app_path):
-                print(f"  {item}")
-        else:
-            print(f"\nWARNING: distributed_example_app directory NOT FOUND at {dist_app_path}")
-        
-        # Check sys.path
         import sys
         print(f"\nPython sys.path:")
-        for path in sys.path:
+        for path in sys.path[:10]:
             print(f"  {path}")
         
-        # Add current working directory to Python path for subprocess
+        # Add current directory to Python path
         cwd = os.getcwd()
         if cwd not in sys.path:
             sys.path.insert(0, cwd)
@@ -362,8 +302,6 @@ class XFuserApp(
                 print("Force killing xFuser service...")
                 self.process.kill()
                 await self.process.wait()
-    
-    
 
 
 if __name__ == "__main__":
