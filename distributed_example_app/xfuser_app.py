@@ -90,7 +90,9 @@ class XFuserApp(
         repo_path = clone_repository(
             "https://github.com/alex-remade/fal-sdk-distributed-examples",
             include_to_path=True,
+            commit_hash="",
         )
+        
         print(f"Repository cloned to: {repo_path}")
         
         # Explicitly ensure it's in sys.path (belt and suspenders approach)
@@ -105,6 +107,8 @@ class XFuserApp(
         
         # Debug: Check sys.path
         print(f"sys.path: {sys.path[:3]}...")  # Show first 3 entries
+
+        os.chdir(repo_path)
 
         # Import from cloned repository
         print("Attempting to import distributed_example_app.engine...")
