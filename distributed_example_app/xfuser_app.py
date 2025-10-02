@@ -73,7 +73,7 @@ class XFuserApp(
         "opencv-python>=4.9.0.80",
         "fastapi>=0.100.0",
         "httpx>=0.24.0",
-        "pydantic>=1.8,<2.0",
+        "pydantic>=2.0",
         "uvicorn>=0.20.0",
         "xfuser>=0.3.0",
         "sentencepiece",
