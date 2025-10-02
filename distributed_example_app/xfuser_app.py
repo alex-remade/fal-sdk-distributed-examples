@@ -2,19 +2,14 @@ import asyncio
 import base64
 import io
 import time
-from typing import Any, Optional, TYPE_CHECKING
+from typing import Any, Optional
 
 import fal
 from fal.toolkit import File, Image, clone_repository
 from pydantic import BaseModel, Field
 
 
-
-
-if TYPE_CHECKING:
-    import httpx
-    from fastapi.responses import Response
-
+from xfuser import xFuserArgs
 
 class GenerateRequest(BaseModel):
     """Request model for image generation using xFuser."""
@@ -42,13 +37,12 @@ class GenerateResponse(BaseModel):
 class XFuserApp(
     fal.App,
     keep_alive=300,
-   
+  
 ):
     """
     Fal app that runs xFuser for distributed image generation.
     
-    This app starts the xFuser service as a subprocess and forwards
-    requests to its internal API.
+    This app uses Ray to distribute inference across multiple GPUs.
     
     Configuration via environment variables:
     - MODEL_PATH: HuggingFace model path (default: black-forest-labs/FLUX.1-schnell)
@@ -56,12 +50,13 @@ class XFuserApp(
     - ULYSSES_DEGREE: Ulysses sequence parallelism degree (default: 1)
     - RING_DEGREE: Ring attention parallelism degree (default: 1)
     - USE_CFG_PARALLEL: Enable CFG parallelism (default: false)
-    - SAVE_DISK_PATH: Default path for saving images (default: output)
     - WARMUP_STEPS: Number of warmup steps (default: 1)
     """
 
     num_gpus = 2
-    requirements=[
+    machine_type="GPU-A100"
+    
+    requirements = [
         "torch>=2.6.0",
         "torchvision>=0.21.0",
         "diffusers>=0.28.2",
@@ -73,41 +68,50 @@ class XFuserApp(
         "opencv-python>=4.9.0.80",
         "fastapi>=0.100.0",
         "httpx>=0.24.0",
-        "pydantic>=2.0",
+        "pydantic>=1.8,<2.0",  # Locked by Fal platform
         "uvicorn>=0.20.0",
         "xfuser>=0.3.0",
         "sentencepiece",
         "protobuf",
     ]
-    machine_type="GPU-A100"  
-
 
     async def setup(self) -> None:
         """
-        Start the xFuser service as a subprocess and wait for it to be ready.
+        Initialize the xFuser distributed engine.
         """
         import os
         import sys
-        import httpx
+        import ray
+        from distributed_example_app.engine import Engine
+        print("=== Starting xFuser Distributed Engine Setup ===")
+ 
 
-        # Initialize instance variables (don't use __init__)
-        self.process: Optional[asyncio.subprocess.Process] = None
-        self.internal_api_url = "http://127.0.0.1:6000"
-        self.client: Optional["httpx.AsyncClient"] = None  # type: ignore[name-defined]
-
-        # Clone the repository and add to Python path
-        print("=== Cloning repository ===")
+        # Clone the repository containing distributed_example_app
+        print("Cloning repository...")
         repo_path = clone_repository(
             "https://github.com/alex-remade/fal-sdk-distributed-examples",
-            # You can optionally specify a commit hash for reproducibility:
-            # commit_hash="your-commit-hash-here",
             include_to_path=True,
         )
         print(f"Repository cloned to: {repo_path}")
-        print(f"Repository contents: {os.listdir(repo_path)}")
         
-        # Store repo path for subprocess PYTHONPATH propagation
-        self.repo_path = repo_path
+        # Explicitly ensure it's in sys.path (belt and suspenders approach)
+        if repo_path not in sys.path:
+            sys.path.insert(0, repo_path)
+            print(f"Added {repo_path} to sys.path")
+        
+        # Debug: Check what's in the cloned directory
+        print(f"Contents of {repo_path}:")
+        for item in os.listdir(repo_path):
+            print(f"  - {item}")
+        
+        # Debug: Check sys.path
+        print(f"sys.path: {sys.path[:3]}...")  # Show first 3 entries
+
+        # Import from cloned repository
+        print("Attempting to import distributed_example_app.engine...")
+        from distributed_example_app.engine import Engine
+        from xfuser import xFuserArgs
+        print("Import successful!")
 
         # Load configuration from environment variables
         model_path = os.environ.get("MODEL_PATH", "black-forest-labs/FLUX.1-schnell")
@@ -117,92 +121,8 @@ class XFuserApp(
         pipefusion_degree = int(os.environ.get("PIPEFUSION_DEGREE", "2"))
         ulysses_degree = int(os.environ.get("ULYSSES_DEGREE", "1"))
         ring_degree = int(os.environ.get("RING_DEGREE", "1"))
-        
-        # Additional options
-        save_disk_path = os.environ.get("SAVE_DISK_PATH", "output")
         use_cfg_parallel = os.environ.get("USE_CFG_PARALLEL", "false").lower() == "true"
-        
-        # Advanced options
         warmup_steps = int(os.environ.get("WARMUP_STEPS", "1"))
-
-        # DEBUG: Print directory information before starting subprocess
-        print("=== DEBUG: Directory Information ===")
-        print(f"Current working directory: {os.getcwd()}")
-        print(f"Directory contents of CWD:")
-        cwd_items = os.listdir(os.getcwd())
-        if not cwd_items:
-            print("  (EMPTY - no files or directories)")
-        else:
-            for item in cwd_items:
-                item_path = os.path.join(os.getcwd(), item)
-                if os.path.isdir(item_path):
-                    print(f"  [DIR]  {item}")
-                else:
-                    print(f"  [FILE] {item}")
-        
-        # If in /app, list all contents recursively
-        if os.getcwd() == "/app":
-            print(f"\nDetailed recursive listing of /app:")
-            for root, dirs, files in os.walk("/app"):
-                level = root.replace("/app", "").count(os.sep)
-                indent = " " * 2 * level
-                print(f"{indent}{os.path.basename(root)}/")
-                subindent = " " * 2 * (level + 1)
-                for file in files:
-                    print(f"{subindent}[FILE] {file}")
-                for dir in dirs:
-                    print(f"{subindent}[DIR] {dir}/")
-        
-        # Check parent directory
-        parent_dir = os.path.dirname(os.getcwd())
-        if parent_dir:
-            print(f"\nParent directory ({parent_dir}) contents:")
-            for item in os.listdir(parent_dir):
-                item_path = os.path.join(parent_dir, item)
-                if os.path.isdir(item_path):
-                    print(f"  [DIR]  {item}")
-        
-        # Check if distributed_example_app directory exists
-        dist_app_path = os.path.join(os.getcwd(), "distributed_example_app")
-        if os.path.exists(dist_app_path):
-            print(f"\ndistributed_example_app directory found at: {dist_app_path}")
-            print(f"Contents of distributed_example_app:")
-            for item in os.listdir(dist_app_path):
-                print(f"  {item}")
-        else:
-            print(f"\nWARNING: distributed_example_app directory NOT FOUND at {dist_app_path}")
-        
-        # Check sys.path
-        import sys
-        print(f"\nPython sys.path:")
-        for path in sys.path:
-            print(f"  {path}")
-        print("====================================\n")
-
-        #clone repo and flag to add to sys.path
-        #Ensure python env variable propagates to it PYTHONPATH (same as path but for python modules)
-
-        # Build command to start the xFuser service
-        cmd = [
-            "python",
-            "-m",
-            "distributed_example_app.launch",
-            "--model_path",
-            model_path,
-            "--world_size",
-            str(world_size),
-            "--pipefusion_parallel_degree",
-            str(pipefusion_degree),
-            "--ulysses_parallel_degree",
-            str(ulysses_degree),
-            "--ring_degree",
-            str(ring_degree),
-            "--save_disk_path",
-            save_disk_path,
-        ]
-        
-        if use_cfg_parallel:
-            cmd.append("--use_cfg_parallel")
 
         # Log configuration
         print("=== xFuser Configuration ===")
@@ -215,94 +135,45 @@ class XFuserApp(
         print(f"Warmup Steps: {warmup_steps}")
         print("============================")
 
-        # Prepare environment for subprocess with PYTHONPATH
-        subprocess_env = os.environ.copy()
-        
-        # Add the cloned repository to PYTHONPATH
-        current_pythonpath = subprocess_env.get("PYTHONPATH", "")
-        if current_pythonpath:
-            subprocess_env["PYTHONPATH"] = f"{self.repo_path}:{current_pythonpath}"
-        else:
-            subprocess_env["PYTHONPATH"] = self.repo_path
-        
-        print(f"=== Subprocess Environment ===")
-        print(f"PYTHONPATH: {subprocess_env['PYTHONPATH']}")
-        print(f"sys.path includes: {sys.path}")
-        print("==============================")
+        # Create xFuser configuration as a dict (avoids Pydantic pickling issues)
+        xfuser_args_dict = {
+            'model': model_path,
+            'trust_remote_code': True,
+            'warmup_steps': warmup_steps,
+            'use_parallel_vae': False,
+            'use_torch_compile': False,
+            'ulysses_degree': ulysses_degree,
+            'pipefusion_parallel_degree': pipefusion_degree,
+            'use_cfg_parallel': use_cfg_parallel,
+            'dit_parallel_size': 0,
+        }
 
-        # Start the subprocess
-        print(f"Starting xFuser service with command: {' '.join(cmd)}")
-        self.process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=subprocess_env,
+        # Initialize the distributed engine
+        print("Initializing Ray engine...")
+        self.engine = Engine(
+            world_size=world_size,
+            xfuser_args_dict=xfuser_args_dict
         )
+        print("Ray engine initialized successfully!")
 
-        # Start background tasks to log subprocess output
-        async def log_output(stream, prefix):
-            while True:
-                line = await stream.readline()
-                if not line:
-                    break
-                print(f"[{prefix}] {line.decode().rstrip()}")
-
-        asyncio.create_task(log_output(self.process.stdout, "xFuser-OUT"))
-        asyncio.create_task(log_output(self.process.stderr, "xFuser-ERR"))
-
-        # Create HTTP client
-        self.client = httpx.AsyncClient(timeout=300.0)  # 5 minute timeout
-
-        # Wait for the service to be ready
-        print("Waiting for xFuser service to be ready...")
-        max_retries = 60
-        retry_delay = 5
-
-        for attempt in range(max_retries):
+        # Optional: Run warmup
+        if warmup_steps > 0:
+            print("Running warmup generation...")
             try:
-                response = await self.client.get(f"{self.internal_api_url}/health")
-                if response.status_code == 200:
-                    print("xFuser service is ready!")
-                    break
-                else:
-                    print(f"Attempt {attempt + 1}/{max_retries}: Got status {response.status_code}, retrying...")
+                warmup_request = {
+                    "prompt": "a cat wearing a hat",
+                    "num_inference_steps": 20,
+                    "height": 512,
+                    "width": 512,
+                    "seed": 42,
+                    "cfg": 7.5,
+                }
+                warmup_result = self.engine.generate(warmup_request)
+                print(f"Warmup completed: {warmup_result.get('message', 'success')}")
             except Exception as e:
-                if attempt < max_retries - 1:
-                    print(f"Attempt {attempt + 1}/{max_retries}: Connection failed ({type(e).__name__}: {e}), retrying in {retry_delay}s...")
-                    await asyncio.sleep(retry_delay)
-                else:
-                    raise RuntimeError(f"Failed to start xFuser service after {max_retries} attempts: {e}")
+                print(f"Warning: Warmup failed: {e}")
 
-        # Warmup request
-        print("Running warmup request...")
-        try:
-            warmup_request = GenerateRequest(
-                prompt="a cat wearing a hat",
-                num_inference_steps=20,
-                height=512,
-                width=512,
-            )
-            warmup_result = await self._forward_request(warmup_request)
-            print(f"Warmup completed: {warmup_result.get('message', 'success')}")
-        except Exception as e:
-            print(f"Warning: Warmup failed: {e}")
-
-    async def _forward_request(self, request: GenerateRequest) -> dict[str, Any]:
-        """
-        Forward a request to the internal xFuser API.
-        """
-        if not self.client:
-            raise RuntimeError("HTTP client not initialized")
-
-        response = await self.client.post(
-            f"{self.internal_api_url}/generate",
-            json=request.dict(),
-        )
-
-        if response.status_code != 200:
-            raise RuntimeError(f"xFuser service returned error: {response.text}")
-
-        return response.json()
+        print("=== xFuser Setup Complete ===")
 
     @fal.endpoint("/")
     async def generate(
@@ -311,8 +182,7 @@ class XFuserApp(
         """
         Generate an image using xFuser distributed inference.
         
-        This endpoint forwards the request to the internal xFuser service
-        and returns the generated image.
+        This endpoint uses the Ray-based distributed engine to generate images.
         
         Parameters:
         - prompt: Text description of the image to generate
@@ -325,10 +195,13 @@ class XFuserApp(
         """
         start_time = time.time()
         
-        # Forward request to internal API
-        result = await self._forward_request(request)
+        # Convert Pydantic model to dict for Ray compatibility
+        request_dict = request.dict()
+        
+        # Call the engine directly (synchronous Ray call)
+        result = self.engine.generate(request_dict)
 
-        # Check if we got a base64 image
+        # Process the result
         if not result.get("save_to_disk", False):
             # Decode base64 image
             img_data = base64.b64decode(result["output"])
@@ -358,23 +231,16 @@ class XFuserApp(
         """
         Clean up resources when shutting down.
         """
-        if self.client:
-            await self.client.aclose()
-
-        if self.process:
-            print("Shutting down xFuser service...")
-            self.process.terminate()
-            try:
-                await asyncio.wait_for(self.process.wait(), timeout=10.0)
-            except asyncio.TimeoutError:
-                print("Force killing xFuser service...")
-                self.process.kill()
-                await self.process.wait()
-    
-    
+        import ray
+        
+        print("Cleaning up xFuser engine...")
+        
+        # Shutdown Ray
+        if ray.is_initialized():
+            ray.shutdown()
+            print("Ray shutdown complete")
 
 
 if __name__ == "__main__":
     app = fal.wrap_app(XFuserApp)
     app()
-
