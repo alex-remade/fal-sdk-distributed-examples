@@ -39,7 +39,7 @@ packages = ["distributed_example_app"]
 
 [tool.fal.apps]
 # Distributed demo app using multiple GPUs with Stable Diffusion XL
-"distributed-demo" = { auth = "private", ref = "distributed_example_app/demo_app.py::ExampleDistributedApp" }
+"distributed-demo" = { auth = "private", ref = "distributed_example_app/runner/demo_app.py::ExampleDistributedApp" }
 
 # xFuser-based distributed inference app
-"xfuser-demo" = { auth = "private", ref = "distributed_example_app/xfuser_app.py::XFuserApp" }
+"xfuser-demo" = { auth = "private", ref = "distributed_example_app/xfuser/app.py::XFuserApp" }

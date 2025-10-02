@@ -35,7 +35,7 @@ class GenerateResponse(BaseModel):
 class XFuserApp(
     fal.App,
     keep_alive=300,
-
+    machine_type="GPU-H100",
 ):
     """
     Fal app that runs xFuser for distributed image generation.
@@ -53,16 +53,17 @@ class XFuserApp(
     Configuration via environment variables:
     - MODEL_PATH: HuggingFace model path (default: stabilityai/stable-diffusion-3-medium-diffusers)
     - HF_TOKEN: HuggingFace token for authenticated model access (required for SD3)
-    - PIPEFUSION_DEGREE: Pipeline fusion parallelism degree (default: 2)
-    - ULYSSES_DEGREE: Ulysses sequence parallelism degree (default: 1)
-    - RING_DEGREE: Ring attention parallelism degree (default: 1)
-    - WARMUP_STEPS: Number of warmup steps (default: 1)
     
-    Note: CFG parallel is automatically enabled for U-Net models (SDXL) when using 2 GPUs.
-          For DiT models, dit_parallel_size is automatically calculated.
+    Recommended GPU configurations:
+    - 2 GPUs: pipefusion=2, ulysses=1, cfg=False → 2x GPU = 2 dit_parallel_size
+    - 4 GPUs: pipefusion=4, ulysses=1, cfg=False → 4x GPU = 4 dit_parallel_size
+    - 8 GPUs: pipefusion=8, ulysses=1, cfg=False → 8x GPU = 8 dit_parallel_size
+    
+    Note: For SD3 Medium, using pure PipeFusion (pipefusion=num_gpus) gives best scaling.
+          Keep ulysses=1 and cfg=False for optimal performance.
     """
 
-    num_gpus = 2
+    num_gpus = 2  # Optimized for cost/performance ratio
     
     requirements = [
         "torch>=2.6.0",
@@ -82,9 +83,6 @@ class XFuserApp(
         "sentencepiece",
         "protobuf",
     ]
-    
-    machine_type="GPU-H100"
-
 
     async def setup(self) -> None:
         """
@@ -101,7 +99,6 @@ class XFuserApp(
         repo_path = clone_repository(
             "https://github.com/alex-remade/fal-sdk-distributed-examples",
             include_to_path=True,
-            commit_hash="a30d2f91cf47f59a215ad145cb57489a4123b213"
         )
         
         print(f"Repository cloned to: {repo_path}")
@@ -113,9 +110,9 @@ class XFuserApp(
         
         os.chdir(repo_path)
 
-        # Import from cloned repository
-        print("Attempting to import distributed_example_app.engine...")
-        from distributed_example_app.engine import Engine
+        # Import from cloned repository with new structure
+        print("Attempting to import distributed_example_app.xfuser.engine...")
+        from distributed_example_app.xfuser.engine import Engine
         from xfuser import xFuserArgs
         print("Import successful!")
 
@@ -132,20 +129,23 @@ class XFuserApp(
         model_path = os.environ.get("MODEL_PATH", "stabilityai/stable-diffusion-3-medium-diffusers")
         world_size = self.num_gpus
         
-        # Parallelism configuration
-        pipefusion_degree = 2
-        ulysses_degree = 1
-        ring_degree = 1
+        # Optimal parallelism for SD3 Medium:
+        # For 2 GPUs: Use PipeFusion=2 for best efficiency (~1.6-1.8x speedup)
+        # For 8 GPUs: Use PipeFusion=8 (~2-3x speedup, but poor efficiency)
+        # Pure PipeFusion scales better than mixing strategies for SD3
+        pipefusion_degree = world_size  # Match number of GPUs
+        ulysses_degree = 1  # Keep at 1 for SD3
+        ring_degree = 1  # Not needed for SD3
         warmup_steps = 1
-        use_cfg_parallel = False
-
-        dit_parallel_size = pipefusion_degree * ulysses_degree * (2 if use_cfg_parallel else 1)
-
+        use_cfg_parallel = False  # Adds overhead, avoid unless needed
+        
+        # Calculate dit_parallel_size
+        cfg_degree = 2 if use_cfg_parallel else 1
+        dit_parallel_size = pipefusion_degree * ulysses_degree * cfg_degree
 
         # Log configuration
         print("=== xFuser Configuration ===")
         print(f"Model: {model_path}")
-
         print(f"World Size: {world_size}")
         print(f"PipeFusion Degree: {pipefusion_degree}")
         print(f"Ulysses Degree: {ulysses_degree}")
@@ -153,6 +153,7 @@ class XFuserApp(
         print(f"Use CFG Parallel: {use_cfg_parallel}")
         print(f"DiT Parallel Size: {dit_parallel_size}")
         print(f"Warmup Steps: {warmup_steps}")
+        print(f"Expected total parallelism: {pipefusion_degree}×{ulysses_degree}×{cfg_degree} = {dit_parallel_size}")
         print("============================")
 
         # Create xFuser configuration as a dict (avoids Pydantic pickling issues)
