@@ -62,7 +62,7 @@ class XFuserApp(
           For DiT models, dit_parallel_size is automatically calculated.
     """
 
-    num_gpus = 2
+    num_gpus = 8
     
     requirements = [
         "torch>=2.6.0",
@@ -82,6 +82,8 @@ class XFuserApp(
         "sentencepiece",
         "protobuf",
     ]
+    
+    machine_type="GPU-H100"
 
     def _is_unet_model(self, model_path: str) -> bool:
         """
@@ -109,6 +111,7 @@ class XFuserApp(
         repo_path = clone_repository(
             "https://github.com/alex-remade/fal-sdk-distributed-examples",
             include_to_path=True,
+            commit_hash="a30d2f91cf47f59a215ad145cb57489a4123b213"
         )
         
         print(f"Repository cloned to: {repo_path}")
@@ -140,30 +143,19 @@ class XFuserApp(
         world_size = self.num_gpus
         
         # Parallelism configuration
-        pipefusion_degree = int(os.environ.get("PIPEFUSION_DEGREE", "2"))
-        ulysses_degree = int(os.environ.get("ULYSSES_DEGREE", "1"))
-        ring_degree = int(os.environ.get("RING_DEGREE", "1"))
-        warmup_steps = int(os.environ.get("WARMUP_STEPS", "1"))
-        
-        # Automatically determine CFG parallel and dit_parallel_size based on model architecture
-        is_unet = self._is_unet_model(model_path)
-        
-        if is_unet:
-            # U-Net models (SDXL) require CFG parallel with 2 GPUs
-            use_cfg_parallel = True
-            dit_parallel_size = 0  # U-Net models don't use dit_parallel_size
-            print(f"⚠ Detected U-Net model - CFG parallel auto-enabled (required for 2 GPUs)")
-        else:
-            # DiT models calculate dit_parallel_size from parallelism degrees
-            use_cfg_parallel = False
-            cfg_degree = 2 if use_cfg_parallel else 1
-            dit_parallel_size = pipefusion_degree * ulysses_degree * cfg_degree
-            print(f"✓ Detected DiT model - dit_parallel_size auto-calculated: {dit_parallel_size}")
+        pipefusion_degree = 2
+        ulysses_degree = 2
+        ring_degree = 1
+        warmup_steps = 1
+        use_cfg_parallel = True
+
+        dit_parallel_size = pipefusion_degree * ulysses_degree * (2 if use_cfg_parallel else 1)
+
 
         # Log configuration
         print("=== xFuser Configuration ===")
         print(f"Model: {model_path}")
-        print(f"Architecture: {'U-Net' if is_unet else 'DiT/Transformer'}")
+
         print(f"World Size: {world_size}")
         print(f"PipeFusion Degree: {pipefusion_degree}")
         print(f"Ulysses Degree: {ulysses_degree}")
