@@ -85,16 +85,6 @@ class XFuserApp(
     
     machine_type="GPU-H100"
 
-    def _is_unet_model(self, model_path: str) -> bool:
-        """
-        Determine if a model uses U-Net architecture (vs Transformer/DiT).
-        
-        U-Net models (SDXL) require CFG parallel with 2 GPUs in xFuser.
-        Transformer models (PixArt, SD3, HunyuanDiT) use DiT parallel instead.
-        """
-        unet_models = ["stable-diffusion-xl", "sdxl"]
-        model_lower = model_path.lower()
-        return any(unet_keyword in model_lower for unet_keyword in unet_models)
 
     async def setup(self) -> None:
         """
