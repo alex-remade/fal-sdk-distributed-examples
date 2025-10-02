@@ -35,7 +35,7 @@ class GenerateResponse(BaseModel):
 class XFuserApp(
     fal.App,
     keep_alive=300,
-    machine_type="GPU-H100",
+
 ):
     """
     Fal app that runs xFuser for distributed image generation.
@@ -43,21 +43,23 @@ class XFuserApp(
     This app uses Ray to distribute inference across multiple GPUs.
     
     Supported Models (set via MODEL_PATH environment variable):
-    - stabilityai/stable-diffusion-xl-base-1.0 (SDXL - default)
-    - PixArt-alpha/PixArt-Sigma-XL-2-1024-MS (PixArt-Sigma 1024)
-    - PixArt-alpha/PixArt-Sigma-XL-2-2K-MS (PixArt-Sigma 2K)
-    - PixArt-alpha/PixArt-XL-2-1024-MS (PixArt-Alpha)
-    - stabilityai/stable-diffusion-3-medium-diffusers (SD3)
-    - Tencent-Hunyuan/HunyuanDiT-v1.2-Diffusers (HunyuanDiT)
+    - stabilityai/stable-diffusion-3-medium-diffusers (SD3 - default, DiT architecture)
+    - PixArt-alpha/PixArt-Sigma-XL-2-1024-MS (PixArt-Sigma 1024 - DiT)
+    - PixArt-alpha/PixArt-Sigma-XL-2-2K-MS (PixArt-Sigma 2K - DiT)
+    - PixArt-alpha/PixArt-XL-2-1024-MS (PixArt-Alpha - DiT)
+    - Tencent-Hunyuan/HunyuanDiT-v1.2-Diffusers (HunyuanDiT - DiT)
+    - stabilityai/stable-diffusion-xl-base-1.0 (SDXL - U-Net, requires CFG parallel with 2 GPUs)
     
     Configuration via environment variables:
-    - MODEL_PATH: HuggingFace model path (default: stabilityai/stable-diffusion-xl-base-1.0)
-    - HF_TOKEN: HuggingFace token for authenticated model access (required)
+    - MODEL_PATH: HuggingFace model path (default: stabilityai/stable-diffusion-3-medium-diffusers)
+    - HF_TOKEN: HuggingFace token for authenticated model access (required for SD3)
     - PIPEFUSION_DEGREE: Pipeline fusion parallelism degree (default: 2)
     - ULYSSES_DEGREE: Ulysses sequence parallelism degree (default: 1)
     - RING_DEGREE: Ring attention parallelism degree (default: 1)
-    - USE_CFG_PARALLEL: Enable CFG parallelism (default: false)
     - WARMUP_STEPS: Number of warmup steps (default: 1)
+    
+    Note: CFG parallel is automatically enabled for U-Net models (SDXL) when using 2 GPUs.
+          For DiT models, dit_parallel_size is automatically calculated.
     """
 
     num_gpus = 2
@@ -81,6 +83,17 @@ class XFuserApp(
         "protobuf",
     ]
 
+    def _is_unet_model(self, model_path: str) -> bool:
+        """
+        Determine if a model uses U-Net architecture (vs Transformer/DiT).
+        
+        U-Net models (SDXL) require CFG parallel with 2 GPUs in xFuser.
+        Transformer models (PixArt, SD3, HunyuanDiT) use DiT parallel instead.
+        """
+        unet_models = ["stable-diffusion-xl", "sdxl"]
+        model_lower = model_path.lower()
+        return any(unet_keyword in model_lower for unet_keyword in unet_models)
+
     async def setup(self) -> None:
         """
         Initialize the xFuser distributed engine.
@@ -96,7 +109,6 @@ class XFuserApp(
         repo_path = clone_repository(
             "https://github.com/alex-remade/fal-sdk-distributed-examples",
             include_to_path=True,
-            commit_hash="91d19e6e956c25a30291774833cce9155d84e06d",
         )
         
         print(f"Repository cloned to: {repo_path}")
@@ -105,11 +117,6 @@ class XFuserApp(
         if repo_path not in sys.path:
             sys.path.insert(0, repo_path)
             print(f"Added {repo_path} to sys.path")
-        
-        # Debug: Check what's in the cloned directory
-        print(f"Contents of {repo_path}:")
-        for item in os.listdir(repo_path):
-            print(f"  - {item}")
         
         os.chdir(repo_path)
 
@@ -128,24 +135,41 @@ class XFuserApp(
             print("⚠ WARNING: No HF_TOKEN found - may fail for gated models")
 
         # Load configuration from environment variables
-        model_path = os.environ.get("MODEL_PATH", "stabilityai/stable-diffusion-xl-base-1.0")
+        # Default to SD3 Medium (DiT model with excellent distributed support)
+        model_path = os.environ.get("MODEL_PATH", "stabilityai/stable-diffusion-3-medium-diffusers")
         world_size = self.num_gpus
         
         # Parallelism configuration
         pipefusion_degree = int(os.environ.get("PIPEFUSION_DEGREE", "2"))
         ulysses_degree = int(os.environ.get("ULYSSES_DEGREE", "1"))
         ring_degree = int(os.environ.get("RING_DEGREE", "1"))
-        use_cfg_parallel = os.environ.get("USE_CFG_PARALLEL", "false").lower() == "true"
         warmup_steps = int(os.environ.get("WARMUP_STEPS", "1"))
+        
+        # Automatically determine CFG parallel and dit_parallel_size based on model architecture
+        is_unet = self._is_unet_model(model_path)
+        
+        if is_unet:
+            # U-Net models (SDXL) require CFG parallel with 2 GPUs
+            use_cfg_parallel = True
+            dit_parallel_size = 0  # U-Net models don't use dit_parallel_size
+            print(f"⚠ Detected U-Net model - CFG parallel auto-enabled (required for 2 GPUs)")
+        else:
+            # DiT models calculate dit_parallel_size from parallelism degrees
+            use_cfg_parallel = False
+            cfg_degree = 2 if use_cfg_parallel else 1
+            dit_parallel_size = pipefusion_degree * ulysses_degree * cfg_degree
+            print(f"✓ Detected DiT model - dit_parallel_size auto-calculated: {dit_parallel_size}")
 
         # Log configuration
         print("=== xFuser Configuration ===")
         print(f"Model: {model_path}")
+        print(f"Architecture: {'U-Net' if is_unet else 'DiT/Transformer'}")
         print(f"World Size: {world_size}")
         print(f"PipeFusion Degree: {pipefusion_degree}")
         print(f"Ulysses Degree: {ulysses_degree}")
         print(f"Ring Degree: {ring_degree}")
         print(f"Use CFG Parallel: {use_cfg_parallel}")
+        print(f"DiT Parallel Size: {dit_parallel_size}")
         print(f"Warmup Steps: {warmup_steps}")
         print("============================")
 
@@ -159,7 +183,7 @@ class XFuserApp(
             'ulysses_degree': ulysses_degree,
             'pipefusion_parallel_degree': pipefusion_degree,
             'use_cfg_parallel': use_cfg_parallel,
-            'dit_parallel_size': 0,
+            'dit_parallel_size': dit_parallel_size,
         }
 
         # Initialize the distributed engine
