@@ -16,6 +16,7 @@ from xfuser import (
     xFuserPixArtSigmaPipeline,
     xFuserFluxPipeline,
     xFuserStableDiffusion3Pipeline,
+    xFuserStableDiffusionXLPipeline,
     xFuserHunyuanDiTPipeline,
     xFuserArgs,
 )
@@ -70,10 +71,21 @@ class ImageGenerator:
         
         model_name = self.engine_config.model_config.model.split("/")[-1]
         pipeline_map = {
+            # PixArt models
             "PixArt-XL-2-1024-MS": xFuserPixArtAlphaPipeline,
+            "PixArt-Sigma-XL-2-1024-MS": xFuserPixArtSigmaPipeline,
             "PixArt-Sigma-XL-2-2K-MS": xFuserPixArtSigmaPipeline,
+            
+            # SDXL models
+            "stable-diffusion-xl-base-1.0": xFuserStableDiffusionXLPipeline,
+            
+            # SD3 models
             "stable-diffusion-3-medium-diffusers": xFuserStableDiffusion3Pipeline,
+            
+            # HunyuanDiT models
             "HunyuanDiT-v1.2-Diffusers": xFuserHunyuanDiTPipeline,
+            
+            # FLUX models
             "FLUX.1-schnell": xFuserFluxPipeline,
             "FLUX.1-dev": xFuserFluxPipeline,
         }
@@ -211,4 +223,3 @@ class Engine:
             raise RuntimeError("No result returned from workers")
         
         return result
-

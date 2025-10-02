@@ -9,7 +9,6 @@ from fal.toolkit import File, Image, clone_repository
 from pydantic import BaseModel, Field
 
 
-
 class GenerateRequest(BaseModel):
     """Request model for image generation using xFuser."""
 
@@ -36,15 +35,24 @@ class GenerateResponse(BaseModel):
 class XFuserApp(
     fal.App,
     keep_alive=300,
-  
+    machine_type="GPU-H100",
 ):
     """
     Fal app that runs xFuser for distributed image generation.
     
     This app uses Ray to distribute inference across multiple GPUs.
     
+    Supported Models (set via MODEL_PATH environment variable):
+    - stabilityai/stable-diffusion-xl-base-1.0 (SDXL - default)
+    - PixArt-alpha/PixArt-Sigma-XL-2-1024-MS (PixArt-Sigma 1024)
+    - PixArt-alpha/PixArt-Sigma-XL-2-2K-MS (PixArt-Sigma 2K)
+    - PixArt-alpha/PixArt-XL-2-1024-MS (PixArt-Alpha)
+    - stabilityai/stable-diffusion-3-medium-diffusers (SD3)
+    - Tencent-Hunyuan/HunyuanDiT-v1.2-Diffusers (HunyuanDiT)
+    
     Configuration via environment variables:
-    - MODEL_PATH: HuggingFace model path (default: black-forest-labs/FLUX.1-schnell)
+    - MODEL_PATH: HuggingFace model path (default: stabilityai/stable-diffusion-xl-base-1.0)
+    - HF_TOKEN: HuggingFace token for authenticated model access (required)
     - PIPEFUSION_DEGREE: Pipeline fusion parallelism degree (default: 2)
     - ULYSSES_DEGREE: Ulysses sequence parallelism degree (default: 1)
     - RING_DEGREE: Ring attention parallelism degree (default: 1)
@@ -53,7 +61,6 @@ class XFuserApp(
     """
 
     num_gpus = 2
-    machine_type="GPU-H100"
     
     requirements = [
         "torch>=2.6.0",
@@ -83,19 +90,18 @@ class XFuserApp(
         import ray
 
         print("=== Starting xFuser Distributed Engine Setup ===")
- 
 
         # Clone the repository containing distributed_example_app
         print("Cloning repository...")
         repo_path = clone_repository(
             "https://github.com/alex-remade/fal-sdk-distributed-examples",
             include_to_path=True,
-            commit_hash="",
+            commit_hash="91d19e6e956c25a30291774833cce9155d84e06d",
         )
         
         print(f"Repository cloned to: {repo_path}")
         
-        # Explicitly ensure it's in sys.path (belt and suspenders approach)
+        # Explicitly ensure it's in sys.path
         if repo_path not in sys.path:
             sys.path.insert(0, repo_path)
             print(f"Added {repo_path} to sys.path")
@@ -105,9 +111,6 @@ class XFuserApp(
         for item in os.listdir(repo_path):
             print(f"  - {item}")
         
-        # Debug: Check sys.path
-        print(f"sys.path: {sys.path[:3]}...")  # Show first 3 entries
-
         os.chdir(repo_path)
 
         # Import from cloned repository
@@ -116,8 +119,16 @@ class XFuserApp(
         from xfuser import xFuserArgs
         print("Import successful!")
 
+        # Set HuggingFace token if provided
+        hf_token = os.environ.get("HF_TOKEN")
+        if hf_token:
+            os.environ["HUGGING_FACE_HUB_TOKEN"] = hf_token
+            print("✓ HuggingFace token configured")
+        else:
+            print("⚠ WARNING: No HF_TOKEN found - may fail for gated models")
+
         # Load configuration from environment variables
-        model_path = os.environ.get("MODEL_PATH", "black-forest-labs/FLUX.1-schnell")
+        model_path = os.environ.get("MODEL_PATH", "stabilityai/stable-diffusion-xl-base-1.0")
         world_size = self.num_gpus
         
         # Parallelism configuration
