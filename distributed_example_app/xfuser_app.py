@@ -5,7 +5,7 @@ import time
 from typing import Any, Optional, TYPE_CHECKING
 
 import fal
-from fal.toolkit import File, Image
+from fal.toolkit import File, Image, clone_repository
 from pydantic import BaseModel, Field
 
 
@@ -85,14 +85,27 @@ class XFuserApp(
         Start the xFuser service as a subprocess and wait for it to be ready.
         """
         import os
+        import sys
         import httpx
-
-        from distributed_example_app.launch import launch, GenerateRequest, GenerateResponse
 
         # Initialize instance variables (don't use __init__)
         self.process: Optional[asyncio.subprocess.Process] = None
         self.internal_api_url = "http://127.0.0.1:6000"
         self.client: Optional["httpx.AsyncClient"] = None  # type: ignore[name-defined]
+
+        # Clone the repository and add to Python path
+        print("=== Cloning repository ===")
+        repo_path = clone_repository(
+            "https://github.com/alex-remade/fal-sdk-distributed-examples",
+            # You can optionally specify a commit hash for reproducibility:
+            # commit_hash="your-commit-hash-here",
+            include_to_path=True,
+        )
+        print(f"Repository cloned to: {repo_path}")
+        print(f"Repository contents: {os.listdir(repo_path)}")
+        
+        # Store repo path for subprocess PYTHONPATH propagation
+        self.repo_path = repo_path
 
         # Load configuration from environment variables
         model_path = os.environ.get("MODEL_PATH", "black-forest-labs/FLUX.1-schnell")
@@ -200,12 +213,28 @@ class XFuserApp(
         print(f"Warmup Steps: {warmup_steps}")
         print("============================")
 
+        # Prepare environment for subprocess with PYTHONPATH
+        subprocess_env = os.environ.copy()
+        
+        # Add the cloned repository to PYTHONPATH
+        current_pythonpath = subprocess_env.get("PYTHONPATH", "")
+        if current_pythonpath:
+            subprocess_env["PYTHONPATH"] = f"{self.repo_path}:{current_pythonpath}"
+        else:
+            subprocess_env["PYTHONPATH"] = self.repo_path
+        
+        print(f"=== Subprocess Environment ===")
+        print(f"PYTHONPATH: {subprocess_env['PYTHONPATH']}")
+        print(f"sys.path includes: {sys.path}")
+        print("==============================")
+
         # Start the subprocess
         print(f"Starting xFuser service with command: {' '.join(cmd)}")
         self.process = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            env=subprocess_env,
         )
 
         # Start background tasks to log subprocess output
